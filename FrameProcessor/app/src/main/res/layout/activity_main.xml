@@ -6,7 +6,14 @@
     <TextureView
         android:id="@+id/texture_view"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:layout_gravity="center" />
+
+    <android.opengl.GLSurfaceView
+        android:id="@+id/gl_surface_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center" />
 
     <LinearLayout
         android:id="@+id/permission_layout"
@@ -14,21 +21,35 @@
         android:layout_height="match_parent"
         android:gravity="center"
         android:orientation="vertical"
+        android:background="#CC000000"
         android:visibility="gone">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Camera permission is required"
-            android:textSize="18sp" />
+            android:textSize="18sp"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="16dp" />
 
         <Button
             android:id="@+id/request_permission_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Grant Permission" />
+            android:text="Grant Permission"
+            android:background="#80000000"
+            android:textColor="#FFFFFF"
+            android:padding="16dp" />
 
     </LinearLayout>
+
+    <Button
+        android:id="@+id/capture_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="20dp"
+        android:text="Capture"
+        android:visibility="gone"/>
 
 </FrameLayout> 

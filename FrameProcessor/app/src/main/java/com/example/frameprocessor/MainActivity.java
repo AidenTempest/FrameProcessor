@@ -3,15 +3,23 @@ package com.example.frameprocessor;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
+import android.media.Image;
+import android.media.ImageReader;
 import android.hardware.camera2.*;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.util.Log;
+import android.util.Size;
 import android.view.Surface;
 import android.view.TextureView;
+import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.Toast;
+import android.opengl.GLSurfaceView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -19,21 +27,35 @@ import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
 import org.opencv.android.Utils;
+import org.opencv.core.CvType;
 import org.opencv.core.Mat;
+import org.opencv.imgproc.Imgproc;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import android.hardware.camera2.params.StreamConfigurationMap;
 
 public class MainActivity extends AppCompatActivity {
+    private static final String TAG = "MainActivity";
     private static final int CAMERA_PERMISSION_REQUEST = 100;
     private TextureView textureView;
+    private GLSurfaceView glSurfaceView;
+    private GLRenderer glRenderer;
     private CameraDevice cameraDevice;
     private CameraCaptureSession captureSession;
     private HandlerThread backgroundThread;
     private Handler backgroundHandler;
     private LinearLayout permissionLayout;
     private Button requestPermissionButton;
+    private Button captureButton;
     private Mat inputMat;
     private Mat outputMat;
     private boolean isProcessing = false;
+    private ImageReader imageReader;
+    private Size previewSize;
 
     // Load native library
     static {
@@ -48,7 +70,7 @@ public class MainActivity extends AppCompatActivity {
         public void onManagerConnected(int status) {
             switch (status) {
                 case LoaderCallbackInterface.SUCCESS: {
-                    // OpenCV loaded successfully
+                    Log.d(TAG, "OpenCV loaded successfully");
                     break;
                 }
                 default: {
@@ -64,84 +86,167 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        // Initialize OpenGL
+        glSurfaceView = findViewById(R.id.gl_surface_view);
+        glRenderer = new GLRenderer();
+        glSurfaceView.setEGLContextClientVersion(2);
+        glSurfaceView.setRenderer(glRenderer);
+        glSurfaceView.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
+        glSurfaceView.setVisibility(View.GONE); // Hide GLSurfaceView initially
+
+        // Set the callback for when a frame is processed by GLRenderer
+        glRenderer.setFrameProcessedCallback(() -> {
+            isProcessing = false;
+        });
+
         textureView = findViewById(R.id.texture_view);
         permissionLayout = findViewById(R.id.permission_layout);
         requestPermissionButton = findViewById(R.id.request_permission_button);
+        captureButton = findViewById(R.id.capture_button);
 
         requestPermissionButton.setOnClickListener(v -> requestCameraPermission());
+        captureButton.setOnClickListener(v -> {
+            if (!isProcessing) {
+                processCurrentFrame();
+            }
+        });
 
         // Check camera permission on startup
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
-            permissionLayout.setVisibility(LinearLayout.VISIBLE);
+            permissionLayout.setVisibility(View.VISIBLE);
+            textureView.setVisibility(View.GONE);
+            captureButton.setVisibility(View.GONE);
+        } else {
+            permissionLayout.setVisibility(View.GONE);
+            textureView.setAlpha(1.0f);
+            textureView.setVisibility(View.VISIBLE);
+            captureButton.setVisibility(View.VISIBLE);
         }
 
         textureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
             @Override
             public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
+                Log.d(TAG, "Surface texture available: " + width + "x" + height);
                 if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA)
                         == PackageManager.PERMISSION_GRANTED) {
                     openCamera();
                 } else {
-                    permissionLayout.setVisibility(LinearLayout.VISIBLE);
+                    Log.d(TAG, "Showing permission request");
+                    permissionLayout.setVisibility(View.VISIBLE);
+                    textureView.setVisibility(View.GONE);
+                    captureButton.setVisibility(View.GONE);
                 }
             }
 
             @Override
-            public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {}
+            public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
+                Log.d(TAG, "Surface texture size changed: " + width + "x" + height);
+            }
 
             @Override
             public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
+                Log.d(TAG, "Surface texture destroyed");
                 return true;
             }
 
             @Override
             public void onSurfaceTextureUpdated(SurfaceTexture surface) {
-                if (isProcessing) return;
-                isProcessing = true;
-
-                try {
-                    Bitmap bitmap = textureView.getBitmap();
-                    if (bitmap != null) {
-                        if (inputMat == null) {
-                            inputMat = new Mat();
-                            outputMat = new Mat();
-                        }
-                        Utils.bitmapToMat(bitmap, inputMat);
-                        // Process the frame using native code
-                        processFrame(inputMat.getNativeObjAddr(), outputMat.getNativeObjAddr());
-                        Utils.matToBitmap(outputMat, bitmap);
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                } finally {
-                    isProcessing = false;
-                }
+                // No processing here - we'll process only when capture button is pressed
             }
         });
+    }
+
+    private void processCurrentFrame() {
+        if (isProcessing) {
+            return;
+        }
+        isProcessing = true;
+
+        try {
+            Bitmap bitmap = textureView.getBitmap();
+            if (bitmap != null) {
+                Log.d(TAG, "Processing frame: " + bitmap.getWidth() + "x" + bitmap.getHeight());
+                if (inputMat == null || inputMat.cols() != bitmap.getWidth() || inputMat.rows() != bitmap.getHeight()) {
+                    inputMat = new Mat(bitmap.getHeight(), bitmap.getWidth(), CvType.CV_8UC4);
+                    outputMat = new Mat(bitmap.getHeight(), bitmap.getWidth(), CvType.CV_8UC4);
+                }
+                
+                // Convert bitmap to Mat
+                Utils.bitmapToMat(bitmap, inputMat);
+                
+                // Process the frame using native code
+                processFrame(inputMat.getNativeObjAddr(), outputMat.getNativeObjAddr());
+                
+                // Log output Mat properties for debugging
+                Log.d(TAG, "Output Mat properties: type=" + outputMat.type() +
+                        ", channels=" + outputMat.channels() +
+                        ", cols=" + outputMat.cols() +
+                        ", rows=" + outputMat.rows());
+
+                // Convert Mat to byte array for OpenGL
+                int total = (int)outputMat.total();
+                int channels = outputMat.channels();
+                byte[] data = new byte[total * channels];
+                outputMat.get(0, 0, data);
+                
+                // Update OpenGL texture and show GLSurfaceView
+                final int cols = outputMat.cols();
+                final int rows = outputMat.rows(); 
+                glSurfaceView.queueEvent(() -> {
+                    glRenderer.updateTexture(data, cols, rows);
+                    glSurfaceView.requestRender();
+                });
+
+                runOnUiThread(() -> {
+                    glSurfaceView.setVisibility(View.VISIBLE);
+                    textureView.setVisibility(View.GONE);
+                });
+            } else {
+                Log.e(TAG, "Failed to get bitmap from TextureView. Bitmap is null.");
+                Toast.makeText(this, "Failed to get bitmap from TextureView. Is camera preview working?", Toast.LENGTH_LONG).show();
+                isProcessing = false;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error processing frame", e);
+            Toast.makeText(this, "Error processing frame: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            isProcessing = false;
+        }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        Log.d(TAG, "onResume");
         startBackgroundThread();
         if (!OpenCVLoader.initDebug()) {
             OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION, this, mLoaderCallback);
         } else {
             mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
         }
+        glSurfaceView.onResume();
         
         // Check camera permission on resume
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
-            permissionLayout.setVisibility(LinearLayout.VISIBLE);
+            permissionLayout.setVisibility(View.VISIBLE);
+            textureView.setVisibility(View.GONE);
+            captureButton.setVisibility(View.GONE);
+        } else {
+            permissionLayout.setVisibility(View.GONE);
+            textureView.setAlpha(1.0f);
+            textureView.setVisibility(View.VISIBLE);
+            captureButton.setVisibility(View.VISIBLE);
         }
+        glSurfaceView.setVisibility(View.GONE);
     }
 
     @Override
     protected void onPause() {
+        Log.d(TAG, "onPause");
         closeCamera();
         stopBackgroundThread();
+        glSurfaceView.onPause();
         super.onPause();
     }
 
@@ -156,11 +261,98 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == CAMERA_PERMISSION_REQUEST) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                permissionLayout.setVisibility(LinearLayout.GONE);
+                permissionLayout.setVisibility(View.GONE);
+                textureView.setAlpha(1.0f);
+                textureView.setVisibility(View.VISIBLE);
+                captureButton.setVisibility(View.VISIBLE);
+                glSurfaceView.setVisibility(View.GONE);
                 openCamera();
             } else {
-                permissionLayout.setVisibility(LinearLayout.VISIBLE);
+                Log.d(TAG, "Camera permission denied");
+                permissionLayout.setVisibility(View.VISIBLE);
+                textureView.setVisibility(View.GONE);
+                captureButton.setVisibility(View.GONE);
             }
+        }
+    }
+
+    private void openCamera() {
+        CameraManager manager = (CameraManager) getSystemService(CAMERA_SERVICE);
+        try {
+            String cameraId = manager.getCameraIdList()[0];
+            CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
+            StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+
+            // Find a suitable preview size
+            previewSize = chooseOptimalSize(map.getOutputSizes(SurfaceTexture.class), 1280, 720);
+
+            textureView.getSurfaceTexture().setDefaultBufferSize(previewSize.getWidth(), previewSize.getHeight());
+            Surface textureSurface = new Surface(textureView.getSurfaceTexture());
+
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                manager.openCamera(cameraId, new CameraDevice.StateCallback() {
+                    @Override
+                    public void onOpened(CameraDevice camera) {
+                        cameraDevice = camera;
+                        createCameraPreviewSession(textureSurface);
+                    }
+
+                    @Override
+                    public void onDisconnected(CameraDevice camera) {
+                        camera.close();
+                        cameraDevice = null;
+                    }
+
+                    @Override
+                    public void onError(CameraDevice camera, int error) {
+                        camera.close();
+                        cameraDevice = null;
+                        Log.e(TAG, "CameraDevice.StateCallback onError: " + error);
+                    }
+                }, backgroundHandler);
+            }
+        } catch (CameraAccessException e) {
+            Log.e(TAG, "Error opening camera", e);
+        }
+    }
+
+    private void createCameraPreviewSession(Surface textureSurface) {
+        try {
+            final CaptureRequest.Builder previewRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            previewRequestBuilder.addTarget(textureSurface);
+
+            cameraDevice.createCaptureSession(Collections.singletonList(textureSurface),
+                    new CameraCaptureSession.StateCallback() {
+                        @Override
+                        public void onConfigured(CameraCaptureSession session) {
+                            if (cameraDevice == null) return;
+                            captureSession = session;
+                            try {
+                                previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+                                captureSession.setRepeatingRequest(previewRequestBuilder.build(), null, backgroundHandler);
+                            } catch (CameraAccessException e) {
+                                Log.e(TAG, "Error starting camera preview", e);
+                            }
+                        }
+
+                        @Override
+                        public void onConfigureFailed(CameraCaptureSession session) {
+                            Log.e(TAG, "Failed to configure camera session");
+                        }
+                    }, backgroundHandler);
+        } catch (CameraAccessException e) {
+            Log.e(TAG, "Error creating camera preview session", e);
+        }
+    }
+
+    private void closeCamera() {
+        if (captureSession != null) {
+            captureSession.close();
+            captureSession = null;
+        }
+        if (cameraDevice != null) {
+            cameraDevice.close();
+            cameraDevice = null;
         }
     }
 
@@ -177,80 +369,46 @@ public class MainActivity extends AppCompatActivity {
             backgroundThread = null;
             backgroundHandler = null;
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            Log.e(TAG, "Error stopping background thread", e);
         }
     }
 
-    private void openCamera() {
-        CameraManager manager = (CameraManager) getSystemService(CAMERA_SERVICE);
-        try {
-            String cameraId = manager.getCameraIdList()[0];
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                manager.openCamera(cameraId, new CameraDevice.StateCallback() {
-                    @Override
-                    public void onOpened(CameraDevice camera) {
-                        cameraDevice = camera;
-                        createCameraPreviewSession();
-                    }
-
-                    @Override
-                    public void onDisconnected(CameraDevice camera) {
-                        camera.close();
-                        cameraDevice = null;
-                    }
-
-                    @Override
-                    public void onError(CameraDevice camera, int error) {
-                        camera.close();
-                        cameraDevice = null;
-                    }
-                }, backgroundHandler);
+    // Helper method to choose optimal preview size
+    private Size chooseOptimalSize(Size[] choices, int textureViewWidth, int textureViewHeight) {
+        List<Size> bigEnough = new ArrayList<>();
+        List<Size> tooSmall = new ArrayList<>();
+        for (Size option : choices) {
+            if (option.getWidth() >= textureViewWidth && option.getHeight() >= textureViewHeight) {
+                bigEnough.add(option);
+            } else {
+                tooSmall.add(option);
             }
-        } catch (CameraAccessException e) {
-            e.printStackTrace();
+        }
+        if (bigEnough.size() > 0) {
+            return Collections.min(bigEnough, new CompareSizesByArea());
+        } else if (tooSmall.size() > 0) {
+            return Collections.max(tooSmall, new CompareSizesByArea());
+        } else {
+            Log.e(TAG, "Couldn't find any suitable preview size");
+            return choices[0];
         }
     }
 
-    private void createCameraPreviewSession() {
-        try {
-            SurfaceTexture texture = textureView.getSurfaceTexture();
-            texture.setDefaultBufferSize(1920, 1080);
-            Surface surface = new Surface(texture);
-
-            final CaptureRequest.Builder previewRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-            previewRequestBuilder.addTarget(surface);
-
-            cameraDevice.createCaptureSession(Collections.singletonList(surface),
-                    new CameraCaptureSession.StateCallback() {
-                        @Override
-                        public void onConfigured(CameraCaptureSession session) {
-                            if (cameraDevice == null) return;
-                            captureSession = session;
-                            try {
-                                previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-                                captureSession.setRepeatingRequest(previewRequestBuilder.build(), null, backgroundHandler);
-                            } catch (CameraAccessException e) {
-                                e.printStackTrace();
-                            }
-                        }
-
-                        @Override
-                        public void onConfigureFailed(CameraCaptureSession session) {
-                        }
-                    }, null);
-        } catch (CameraAccessException e) {
-            e.printStackTrace();
+    static class CompareSizesByArea implements Comparator<Size> {
+        @Override
+        public int compare(Size lhs, Size rhs) {
+            return Long.signum((long) lhs.getWidth() * lhs.getHeight() -
+                                (long) rhs.getWidth() * rhs.getHeight());
         }
     }
 
-    private void closeCamera() {
-        if (captureSession != null) {
-            captureSession.close();
-            captureSession = null;
-        }
-        if (cameraDevice != null) {
-            cameraDevice.close();
-            cameraDevice = null;
+    @Override
+    public void onBackPressed() {
+        if (glSurfaceView.getVisibility() == View.VISIBLE) {
+            glSurfaceView.setVisibility(View.GONE);
+            textureView.setVisibility(View.VISIBLE);
+        } else {
+            super.onBackPressed();
         }
     }
 } 

@@ -7,24 +7,43 @@ extern "C" {
 
 JNIEXPORT void JNICALL
 Java_com_example_frameprocessor_MainActivity_processFrame(JNIEnv *env, jobject thiz,
-                                                        jlong input_mat_addr,
-                                                        jlong output_mat_addr) {
-    // Get the input and output matrices
+                                                          jlong input_mat_addr,
+                                                          jlong output_mat_addr) {
     Mat &inputMat = *(Mat *) input_mat_addr;
     Mat &outputMat = *(Mat *) output_mat_addr;
 
-    // Convert to grayscale
+    // Step 1: Grayscale
     Mat gray;
-    cvtColor(inputMat, gray, COLOR_BGR2GRAY);
+    cvtColor(inputMat, gray, COLOR_RGBA2GRAY);
 
-    // Apply Gaussian blur to reduce noise
-    GaussianBlur(gray, gray, Size(5, 5), 0);
+    // Step 2: CLAHE (Contrast Enhancement)
+    Ptr<CLAHE> clahe = createCLAHE();
+    clahe->setClipLimit(2.0);
+    Mat enhanced;
+    clahe->apply(gray, enhanced);
 
-    // Apply Canny edge detection
-    Canny(gray, outputMat, 50, 150);
+    // Step 3: Gaussian Blur
+    GaussianBlur(enhanced, enhanced, Size(5, 5), 0);
 
-    // Convert back to BGR for display
-    cvtColor(outputMat, outputMat, COLOR_GRAY2BGR);
+    // Step 4: Canny with adaptive thresholding
+    Mat flat = enhanced.reshape(1, 1);
+    std::vector<uchar> vec = enhanced.isContinuous() ? flat : flat.clone();
+    std::nth_element(vec.begin(), vec.begin() + vec.size()/2, vec.end());
+    double medianVal = vec[vec.size()/2];
+    double lower = std::max(0.0, 0.66 * medianVal);
+    double upper = std::min(255.0, 1.33 * medianVal);
+    Canny(enhanced, outputMat, lower, upper);
+
+    // Step 5: Morphological Closing
+    Mat kernel = getStructuringElement(MORPH_RECT, Size(3, 3));
+    morphologyEx(outputMat, outputMat, MORPH_CLOSE, kernel);
+
+    // Step 6: Convert to BGR then RGBA
+    Mat bgrResult;
+    cvtColor(outputMat, bgrResult, COLOR_GRAY2BGR);
+    bgrResult.setTo(Scalar(255, 255, 255), outputMat);
+    cvtColor(bgrResult, outputMat, COLOR_BGR2RGBA);
 }
+
 
 } // extern "C" 
