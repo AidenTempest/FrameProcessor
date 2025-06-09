@@ -49,12 +49,11 @@ public class GLRenderer implements GLSurfaceView.Renderer {
     }
 
     public GLRenderer() {
-        // Initialize vertex coordinates for a full-screen quad
         float[] vertices = {
-            -1.0f, -1.0f, 0.0f,  // bottom left
-             1.0f, -1.0f, 0.0f,  // bottom right
-            -1.0f,  1.0f, 0.0f,  // top left
-             1.0f,  1.0f, 0.0f   // top right
+            -1.0f, -1.0f, 0.0f,
+             1.0f, -1.0f, 0.0f,
+            -1.0f,  1.0f, 0.0f,
+             1.0f,  1.0f, 0.0f
         };
         vertexBuffer = ByteBuffer.allocateDirect(vertices.length * 4)
                 .order(ByteOrder.nativeOrder())
@@ -62,12 +61,11 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         vertexBuffer.put(vertices);
         vertexBuffer.position(0);
 
-        // Initialize texture coordinates for a single image
         float[] texCoords = {
-            0.0f, 1.0f,  // bottom left
-            1.0f, 1.0f,  // bottom right
-            0.0f, 0.0f,  // top left
-            1.0f, 0.0f   // top right
+            0.0f, 1.0f,
+            1.0f, 1.0f,
+            0.0f, 0.0f,
+            1.0f, 0.0f
         };
         texCoordBuffer = ByteBuffer.allocateDirect(texCoords.length * 4)
                 .order(ByteOrder.nativeOrder())
@@ -81,25 +79,20 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         Log.d(TAG, "onSurfaceCreated");
         GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         
-        // Set GL_UNPACK_ALIGNMENT to 1 to ensure proper byte alignment
         GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1);
 
-        // Create and compile shaders
         int vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, VERTEX_SHADER);
         int fragmentShader = loadShader(GLES20.GL_FRAGMENT_SHADER, FRAGMENT_SHADER);
 
-        // Create program
         program = GLES20.glCreateProgram();
         GLES20.glAttachShader(program, vertexShader);
         GLES20.glAttachShader(program, fragmentShader);
         GLES20.glLinkProgram(program);
 
-        // Get attribute and uniform locations
         positionHandle = GLES20.glGetAttribLocation(program, "aPosition");
         texCoordHandle = GLES20.glGetAttribLocation(program, "aTexCoord");
         textureHandle = GLES20.glGetUniformLocation(program, "uTexture");
 
-        // Generate texture
         int[] textures = new int[1];
         GLES20.glGenTextures(1, textures, 0);
         textureId = textures[0];
@@ -111,7 +104,6 @@ public class GLRenderer implements GLSurfaceView.Renderer {
 
         surfaceCreated = true;
         
-        // If we have pending texture data, apply it now
         if (pendingTextureData != null) {
             updateTextureInternal(pendingTextureData, pendingWidth, pendingHeight);
             pendingTextureData = null;
@@ -136,22 +128,18 @@ public class GLRenderer implements GLSurfaceView.Renderer {
 
         GLES20.glUseProgram(program);
 
-        // Set vertex attributes
         GLES20.glEnableVertexAttribArray(positionHandle);
         GLES20.glVertexAttribPointer(positionHandle, 3, GLES20.GL_FLOAT, false, 0, vertexBuffer);
 
         GLES20.glEnableVertexAttribArray(texCoordHandle);
         GLES20.glVertexAttribPointer(texCoordHandle, 2, GLES20.GL_FLOAT, false, 0, texCoordBuffer);
 
-        // Bind texture
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId);
         GLES20.glUniform1i(textureHandle, 0);
 
-        // Draw
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
 
-        // Disable vertex arrays
         GLES20.glDisableVertexAttribArray(positionHandle);
         GLES20.glDisableVertexAttribArray(texCoordHandle);
     }
@@ -159,7 +147,6 @@ public class GLRenderer implements GLSurfaceView.Renderer {
     public void updateTexture(byte[] data, int width, int height) {
         if (data == null || width <= 0 || height <= 0) {
             Log.e(TAG, "Invalid texture data");
-            // Critically, if data is invalid, we must still reset the flag to allow next frame
             if (frameProcessedCallback != null) {
                 frameProcessedCallback.run();
             }
@@ -169,11 +156,9 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         Log.d(TAG, "Updating texture: " + width + "x" + height);
         
         if (!surfaceCreated) {
-            // Store the data to be applied when the surface is created
             pendingTextureData = data;
             pendingWidth = width;
             pendingHeight = height;
-            // Critically, if surface not created, we must still reset the flag to allow next frame
             if (frameProcessedCallback != null) {
                 frameProcessedCallback.run();
             }
@@ -190,7 +175,6 @@ public class GLRenderer implements GLSurfaceView.Renderer {
                 GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buffer);
         textureInitialized = true;
 
-        // Notify MainActivity that the frame has been processed and texture updated
         if (frameProcessedCallback != null) {
             Log.d(TAG, "Executing frameProcessedCallback");
             frameProcessedCallback.run();

@@ -59,16 +59,13 @@ public class MainActivity extends AppCompatActivity {
     private Size previewSize;
     private TextView fpsTextView;
 
-    // For FPS counting
     private long frameCount = 0;
     private long lastLogTime = System.currentTimeMillis();
 
-    // Load native library
     static {
         System.loadLibrary("edge_detector");
     }
 
-    // Native method declaration
     private native void processFrame(long inputMatAddr, long outputMatAddr);
 
     private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
@@ -92,22 +89,20 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // Initialize OpenGL
         glSurfaceView = findViewById(R.id.gl_surface_view);
         glRenderer = new GLRenderer();
         glSurfaceView.setEGLContextClientVersion(2);
         glSurfaceView.setRenderer(glRenderer);
         glSurfaceView.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
-        glSurfaceView.setVisibility(View.GONE); // Hide GLSurfaceView initially
+        glSurfaceView.setVisibility(View.GONE);
 
-        // Set the callback for when a frame is processed by GLRenderer
         glRenderer.setFrameProcessedCallback(() -> {
             Log.d(TAG, "frameProcessedCallback: OpenGL texture updated. Resetting isProcessing to false.");
-            isProcessing = false; // Reset flag after OpenGL has finished updating the texture
-            frameCount++; // Increment frame count
+            isProcessing = false;
+            frameCount++;
 
             long currentTime = System.currentTimeMillis();
-            if (currentTime - lastLogTime >= 1000) { // Log FPS every second
+            if (currentTime - lastLogTime >= 1000) {
                 final long currentFPS = frameCount;
                 Log.d(TAG, "FPS: " + currentFPS);
                 runOnUiThread(() -> {
@@ -117,9 +112,8 @@ public class MainActivity extends AppCompatActivity {
                 lastLogTime = currentTime;
             }
 
-            // Schedule the next frame processing
             if (backgroundHandler != null) {
-                backgroundHandler.postDelayed(processFrameRunnable, 1000 / 15); // Target 15 FPS
+                backgroundHandler.postDelayed(processFrameRunnable, 1000 / 15);
             }
         });
 
@@ -130,21 +124,19 @@ public class MainActivity extends AppCompatActivity {
         fpsTextView = findViewById(R.id.fps_text_view);
 
         requestPermissionButton.setOnClickListener(v -> requestCameraPermission());
-        // Capture button click listener is removed as processing will be continuous
 
-        // Check camera permission on startup
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
             permissionLayout.setVisibility(View.VISIBLE);
             textureView.setVisibility(View.GONE);
             captureButton.setVisibility(View.GONE);
-            fpsTextView.setVisibility(View.GONE); // Hide FPS TextView initially
+            fpsTextView.setVisibility(View.GONE);
         } else {
             permissionLayout.setVisibility(View.GONE);
             textureView.setAlpha(1.0f);
             textureView.setVisibility(View.VISIBLE);
-            captureButton.setVisibility(View.GONE); // Hide capture button for continuous processing
-            fpsTextView.setVisibility(View.VISIBLE); // Show FPS TextView
+            captureButton.setVisibility(View.GONE);
+            fpsTextView.setVisibility(View.VISIBLE);
         }
 
         textureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
@@ -154,7 +146,6 @@ public class MainActivity extends AppCompatActivity {
                 if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA)
                         == PackageManager.PERMISSION_GRANTED) {
                     openCamera();
-                    // Start the continuous frame processing loop here
                     if (backgroundHandler != null) {
                         Log.d(TAG, "Scheduling initial processFrameRunnable post.");
                         backgroundHandler.post(processFrameRunnable);
@@ -164,7 +155,7 @@ public class MainActivity extends AppCompatActivity {
                     permissionLayout.setVisibility(View.VISIBLE);
                     textureView.setVisibility(View.GONE);
                     captureButton.setVisibility(View.GONE);
-                    fpsTextView.setVisibility(View.GONE); // Hide FPS TextView
+                    fpsTextView.setVisibility(View.GONE);
                 }
             }
 
@@ -176,7 +167,6 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
                 Log.d(TAG, "Surface texture destroyed");
-                // Stop the continuous frame processing loop here
                 if (backgroundHandler != null) {
                     backgroundHandler.removeCallbacks(processFrameRunnable);
                     Log.d(TAG, "Removed processFrameRunnable callbacks on surface destroyed.");
@@ -186,30 +176,23 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onSurfaceTextureUpdated(SurfaceTexture surface) {
-                // No direct processing here; handled by the timed loop
-                // Log.d(TAG, "onSurfaceTextureUpdated: A new frame is available from TextureView.");
+                // Frame processing handled by timed loop
             }
         });
     }
 
-    private final Runnable processFrameRunnable = new Runnable() {
-        @Override
-        public void run() {
-            processCurrentFrame();
-        }
-    };
+    private final Runnable processFrameRunnable = this::processCurrentFrame;
 
     private void processCurrentFrame() {
         Log.d(TAG, "processCurrentFrame: Attempting to process a frame. isProcessing = " + isProcessing);
         if (isProcessing) {
             Log.d(TAG, "processCurrentFrame: Skipping frame because isProcessing is true.");
-            // Schedule the next frame processing even if current one is skipped due to isProcessing flag
             if (backgroundHandler != null) {
-                backgroundHandler.postDelayed(processFrameRunnable, 1000 / 15); // Re-schedule for next attempt
+                backgroundHandler.postDelayed(processFrameRunnable, 1000 / 15);
             }
             return;
         }
-        isProcessing = true; // Set to true at the start of processing
+        isProcessing = true;
 
         try {
             Bitmap bitmap = textureView.getBitmap();
@@ -220,31 +203,25 @@ public class MainActivity extends AppCompatActivity {
                     outputMat = new Mat(bitmap.getHeight(), bitmap.getWidth(), CvType.CV_8UC4);
                 }
                 
-                // Convert bitmap to Mat
                 Utils.bitmapToMat(bitmap, inputMat);
-                
-                // Process the frame using native code
                 processFrame(inputMat.getNativeObjAddr(), outputMat.getNativeObjAddr());
                 
-                // Log output Mat properties for debugging
                 Log.d(TAG, "Output Mat properties: type=" + outputMat.type() +
                         ", channels=" + outputMat.channels() +
                         ", cols=" + outputMat.cols() +
                         ", rows=" + outputMat.rows());
 
-                // Convert Mat to byte array for OpenGL
                 int total = (int)outputMat.total();
                 int channels = outputMat.channels();
                 byte[] data = new byte[total * channels];
                 outputMat.get(0, 0, data);
                 
-                // Update OpenGL texture and show GLSurfaceView
                 final int cols = outputMat.cols();
                 final int rows = outputMat.rows();
                 glSurfaceView.queueEvent(() -> {
                     Log.d(TAG, "Queuing OpenGL updateTexture call.");
                     glRenderer.updateTexture(data, cols, rows);
-                    glSurfaceView.requestRender(); // Request render since mode is WHEN_DIRTY
+                    glSurfaceView.requestRender();
                 });
 
                 runOnUiThread(() -> {
@@ -257,21 +234,19 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 Log.e(TAG, "Failed to get bitmap from TextureView. Bitmap is null.");
                 Toast.makeText(this, "Failed to get bitmap from TextureView. Is camera preview working?", Toast.LENGTH_LONG).show();
-                isProcessing = false; // Reset isProcessing on error, allow next frame attempt
-                // Schedule the next frame processing even on error to attempt recovery
+                isProcessing = false;
                 if (backgroundHandler != null) {
                     Log.d(TAG, "Scheduling next processFrameRunnable post on bitmap null/error.");
-                    backgroundHandler.postDelayed(processFrameRunnable, 1000 / 15); // Target 15 FPS
+                    backgroundHandler.postDelayed(processFrameRunnable, 1000 / 15);
                 }
             }
         } catch (Exception e) {
             Log.e(TAG, "Error processing frame", e);
             Toast.makeText(this, "Error processing frame: " + e.getMessage(), Toast.LENGTH_LONG).show();
-            isProcessing = false; // Reset isProcessing on error, allow next frame attempt
-            // Schedule the next frame processing even on error to attempt recovery
+            isProcessing = false;
             if (backgroundHandler != null) {
                 Log.d(TAG, "Scheduling next processFrameRunnable post on exception.");
-                backgroundHandler.postDelayed(processFrameRunnable, 1000 / 15); // Target 15 FPS
+                backgroundHandler.postDelayed(processFrameRunnable, 1000 / 15);
             }
         }
     }
@@ -288,26 +263,24 @@ public class MainActivity extends AppCompatActivity {
         }
         glSurfaceView.onResume();
         
-        // Check camera permission on resume
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
             permissionLayout.setVisibility(View.VISIBLE);
             textureView.setVisibility(View.GONE);
             captureButton.setVisibility(View.GONE);
-            fpsTextView.setVisibility(View.GONE); // Hide FPS TextView
+            fpsTextView.setVisibility(View.GONE);
         } else {
             permissionLayout.setVisibility(View.GONE);
             textureView.setAlpha(1.0f);
             textureView.setVisibility(View.VISIBLE);
-            captureButton.setVisibility(View.GONE); // Hide capture button for continuous processing
-            fpsTextView.setVisibility(View.VISIBLE); // Show FPS TextView
-            // Start the continuous frame processing loop here as well if camera is already available
+            captureButton.setVisibility(View.GONE);
+            fpsTextView.setVisibility(View.VISIBLE);
             if (textureView.isAvailable() && backgroundHandler != null) {
                 Log.d(TAG, "Scheduling initial processFrameRunnable post on resume.");
                 backgroundHandler.post(processFrameRunnable);
             }
         }
-        glSurfaceView.setVisibility(View.GONE); // Ensure GLSurfaceView is hidden initially
+        glSurfaceView.setVisibility(View.GONE);
     }
 
     @Override
@@ -316,7 +289,6 @@ public class MainActivity extends AppCompatActivity {
         closeCamera();
         stopBackgroundThread();
         glSurfaceView.onPause();
-        // Stop the continuous frame processing loop here
         if (backgroundHandler != null) {
             backgroundHandler.removeCallbacks(processFrameRunnable);
             Log.d(TAG, "Removed processFrameRunnable callbacks on pause.");
@@ -338,11 +310,10 @@ public class MainActivity extends AppCompatActivity {
                 permissionLayout.setVisibility(View.GONE);
                 textureView.setAlpha(1.0f);
                 textureView.setVisibility(View.VISIBLE);
-                captureButton.setVisibility(View.GONE); // Hide capture button for continuous processing
-                fpsTextView.setVisibility(View.VISIBLE); // Show FPS TextView
-                glSurfaceView.setVisibility(View.GONE); // Ensure GLSurfaceView is hidden initially
+                captureButton.setVisibility(View.GONE);
+                fpsTextView.setVisibility(View.VISIBLE);
+                glSurfaceView.setVisibility(View.GONE);
                 openCamera();
-                // Start the continuous frame processing loop after camera is opened
                 if (backgroundHandler != null) {
                     Log.d(TAG, "Scheduling initial processFrameRunnable post after permission granted and camera opened.");
                     backgroundHandler.post(processFrameRunnable);
@@ -352,7 +323,7 @@ public class MainActivity extends AppCompatActivity {
                 permissionLayout.setVisibility(View.VISIBLE);
                 textureView.setVisibility(View.GONE);
                 captureButton.setVisibility(View.GONE);
-                fpsTextView.setVisibility(View.GONE); // Hide FPS TextView
+                fpsTextView.setVisibility(View.GONE);
             }
         }
     }
@@ -364,7 +335,6 @@ public class MainActivity extends AppCompatActivity {
             CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
             StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
 
-            // Find a suitable preview size
             previewSize = chooseOptimalSize(map.getOutputSizes(SurfaceTexture.class), 1280, 720);
 
             textureView.getSurfaceTexture().setDefaultBufferSize(previewSize.getWidth(), previewSize.getHeight());
@@ -458,7 +428,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // Helper method to choose optimal preview size
     private Size chooseOptimalSize(Size[] choices, int textureViewWidth, int textureViewHeight) {
         List<Size> bigEnough = new ArrayList<>();
         List<Size> tooSmall = new ArrayList<>();
@@ -474,7 +443,7 @@ public class MainActivity extends AppCompatActivity {
         } else if (tooSmall.size() > 0) {
             return Collections.max(tooSmall, new CompareSizesByArea());
         } else {
-            Log.e(TAG, "Couldn't find any suitable preview size");
+            Log.e(TAG, "Couldn\'t find any suitable preview size");
             return choices[0];
         }
     }
