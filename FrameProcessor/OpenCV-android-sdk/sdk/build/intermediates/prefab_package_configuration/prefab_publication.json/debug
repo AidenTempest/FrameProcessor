@@ -1,0 +1,26 @@
+{
+  "installationFolder": "E:\\Programs\\OpenCV-android-sdk\\sdk\\build\\intermediates\\prefab_package\\debug\\prefab",
+  "gradlePath": ":opencv",
+  "packageInfo": {
+    "packageName": "opencv",
+    "packageSchemaVersion": 2,
+    "packageDependencies": [],
+    "modules": [
+      {
+        "moduleName": "opencv_jni_shared",
+        "moduleHeaders": "E:\\Programs\\OpenCV-android-sdk\\sdk\\native\\jni\\include",
+        "moduleExportLibraries": [],
+        "abis": [
+          {
+            "abiName": "x86_64",
+            "abiApi": 21,
+            "abiNdkMajor": 25,
+            "abiStl": "c++_shared",
+            "abiLibrary": "E:\\Programs\\OpenCV-android-sdk\\sdk\\.cxx\\Debug\\2d6lq5a1\\x86_64\\libopencv_jni_shared.a",
+            "abiAndroidGradleBuildJsonFile": "E:\\Programs\\OpenCV-android-sdk\\sdk\\.cxx\\Debug\\2d6lq5a1\\x86_64\\android_gradle_build.json"
+          }
+        ]
+      }
+    ]
+  }
+}
