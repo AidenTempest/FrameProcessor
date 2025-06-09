@@ -9,41 +9,32 @@ JNIEXPORT void JNICALL
 Java_com_example_frameprocessor_MainActivity_processFrame(JNIEnv *env, jobject thiz,
                                                           jlong input_mat_addr,
                                                           jlong output_mat_addr) {
+    // Get the input and output matrices
     Mat &inputMat = *(Mat *) input_mat_addr;
     Mat &outputMat = *(Mat *) output_mat_addr;
 
-    // Step 1: Grayscale
+    // Convert to grayscale (assuming RGBA input from Android Bitmap)
     Mat gray;
     cvtColor(inputMat, gray, COLOR_RGBA2GRAY);
 
-    // Step 2: CLAHE (Contrast Enhancement)
-    Ptr<CLAHE> clahe = createCLAHE();
-    clahe->setClipLimit(2.0);
-    Mat enhanced;
-    clahe->apply(gray, enhanced);
+    // Apply Gaussian blur to reduce noise
+    GaussianBlur(gray, gray, Size(5, 5), 0);
 
-    // Step 3: Gaussian Blur
-    GaussianBlur(enhanced, enhanced, Size(5, 5), 0);
+    // Apply Canny edge detection with adjusted thresholds for clearer edges
+    Canny(gray, outputMat, 50, 150);
 
-    // Step 4: Canny with adaptive thresholding
-    Mat flat = enhanced.reshape(1, 1);
-    std::vector<uchar> vec = enhanced.isContinuous() ? flat : flat.clone();
-    std::nth_element(vec.begin(), vec.begin() + vec.size()/2, vec.end());
-    double medianVal = vec[vec.size()/2];
-    double lower = std::max(0.0, 0.66 * medianVal);
-    double upper = std::min(255.0, 1.33 * medianVal);
-    Canny(enhanced, outputMat, lower, upper);
-
-    // Step 5: Morphological Closing
+    // Dilate the edges to make them more visible
+    Mat dilated;
     Mat kernel = getStructuringElement(MORPH_RECT, Size(3, 3));
-    morphologyEx(outputMat, outputMat, MORPH_CLOSE, kernel);
+    dilate(outputMat, dilated, kernel);
 
-    // Step 6: Convert to BGR then RGBA
+    // Convert back to BGR and make edges more visible
     Mat bgrResult;
-    cvtColor(outputMat, bgrResult, COLOR_GRAY2BGR);
-    bgrResult.setTo(Scalar(255, 255, 255), outputMat);
+    cvtColor(dilated, bgrResult, COLOR_GRAY2BGR);
+    bgrResult.setTo(Scalar(255, 255, 255), dilated);
+
+    // Convert BGR to RGBA for OpenGL
     cvtColor(bgrResult, outputMat, COLOR_BGR2RGBA);
 }
 
-
-} // extern "C" 
+} // extern "C"
